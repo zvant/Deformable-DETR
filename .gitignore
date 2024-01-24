@@ -1,0 +1,7 @@
+*.pyc
+*.egg
+*egg-info
+models/ops/build
+*.so
+*.pth
+*.pt
