@@ -206,17 +206,22 @@ class CocoDetectionScenes100:
                     ann['id'] = ann_id
                     ann_id += 1
 
-        # elif self.split == 'train':
-        #     self.root_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'Intersections', 'images', 'train_lmdb', video_id)
-        #     img_dir = os.path.join(self.root_dir, 'jpegs')
-        #     with open(os.path.join(self.root_dir, 'frames.json'), 'r') as fp:
-        #         frames = json.load(fp)
-        #     annotations_coco = {'images': [], 'annotations': [], 'categories': [{'id': 1, 'name': 'person'}, {'id': 2, 'name': 'vehicle'}]}
-        #     for i, f in enumerate(frames['ifilelist'][::6]):
-        #         annotations_coco['images'].append({'id': i + 1, 'width': frames['meta']['video']['W'], 'height': frames['meta']['video']['H'], 'file_name': f, 'license': 0, 'flickr_url': '', 'coco_url': '', 'date_captured': ''})
-        #     self.anno_file = os.path.join('/tmp/mrt_scenes100_%s_unlabeled_coco.json' % video_id)
-        #     with open(self.anno_file, 'w') as fp:
-        #         json.dump(annotations_coco, fp)
+        elif split == 'pl' or split == 'bmeans': # unlabeled images for pseudo-labeling & BMeans
+            self.annotations = []
+            for video_id in self.video_id_list:
+                root_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'Intersections', 'images', 'train_lmdb', video_id)
+                img_dir = os.path.join(root_dir, 'jpegs')
+                with open(os.path.join(root_dir, 'frames.json'), 'r') as fp:
+                    frames = json.load(fp)
+                ifilelist = frames['ifilelist'][:: (1000 if split == 'pl' else 3600)]
+                annotations_v = []
+                for f in ifilelist:
+                    annotations_v.append({'video_id': video_id, 'width': frames['meta']['video']['W'], 'height': frames['meta']['video']['H'], 'file_name': os.path.join(img_dir, f), 'annotations': []})
+                self.annotations.extend(annotations_v)
+            for i, im in enumerate(self.annotations):
+                im['id'] = i + 1
+                im['image_id'] = im['id']
+
         else:
             raise NotImplementedError
 
@@ -256,12 +261,12 @@ def build_dataset_scenes100(split, scale_factor, args):
             ),
             normalize,
         ])
-    elif split == 'val':
+    elif split == 'val' or split == 'pl' or split == 'bmeans':
         tf = T.Compose([
             T.RandomResize([int(800 * scale_factor)], max_size=int(1333 * scale_factor)),
             normalize,
         ])
     else:
         raise NotImplementedError
-    dataset = CocoDetectionScenes100(split, transforms=tf)
+    dataset = CocoDetectionScenes100(split, tf)
     return dataset

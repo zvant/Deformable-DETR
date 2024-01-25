@@ -124,6 +124,97 @@ def eval_scenes100(args):
         json.dump(results_all, fp)
 
 
+def pseudo_label(args):
+    utils.init_distributed_mode(args)
+    print(args)
+    device = torch.device(args.device)
+    # fix the seed for reproducibility
+    seed = args.seed + utils.get_rank()
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    model, _, postprocessors = build_model(args)
+    model.to(device)
+    checkpoint = torch.load(args.resume, map_location='cpu')
+    model.load_state_dict(checkpoint['model'], strict=True)
+    model.eval()
+
+    dataset_pl = build_dataset_scenes100('pl', args.input_scale, args)
+    sampler = torch.utils.data.SequentialSampler(dataset_pl)
+    data_loader = DataLoader(dataset_pl, args.batch_size, sampler=sampler, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
+
+    detections = {im['id']: im for im in copy.deepcopy(dataset_pl.annotations)}
+    print('%d images' % len(detections))
+    with torch.no_grad():
+        iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
+        for samples, targets in tqdm.tqdm(data_loader, ascii=True, total=len(data_loader)):
+            samples = samples.to(device)
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+            outputs = model(samples)
+            orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
+            results = postprocessors['bbox'](outputs, orig_target_sizes)
+            if 'segm' in postprocessors.keys():
+                target_sizes = torch.stack([t["size"] for t in targets], dim=0)
+                results = postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
+            res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+            for i in res:
+                detections[i]['annotations'] = [{'bbox': list(map(float, b)), 'bbox_mode': BoxMode.XYXY_ABS, 'segmentation': [], 'category_id': int(l) - 1, 'score': float(s)} for s, l, b in zip(res[i]['scores'], res[i]['labels'], res[i]['boxes'])]
+                detections[i]['annotations'] = list(filter(lambda x: x['score'] >= args.refine_det_score_thres, detections[i]['annotations']))
+
+    with open('scenes100_pl_%.2f.json' % args.input_scale, 'w') as fp:
+        json.dump(detections, fp)
+
+
+def bmeans_cluster(args):
+    from sklearn.cluster import KMeans
+
+    utils.init_distributed_mode(args)
+    print(args)
+    device = torch.device(args.device)
+    # fix the seed for reproducibility
+    seed = args.seed + utils.get_rank()
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    model, _, postprocessors = build_model(args)
+    model.to(device)
+    checkpoint = torch.load(args.resume, map_location='cpu')
+    model.load_state_dict(checkpoint['model'], strict=True)
+    model.eval()
+
+    dataset_bmeans = build_dataset_scenes100('pl', args.input_scale, args)
+    sampler = torch.utils.data.SequentialSampler(dataset_bmeans)
+    data_loader = DataLoader(dataset_bmeans, args.batch_size, sampler=sampler, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
+    video_id_features = []
+    video_features = []
+    print('%d images' % len(dataset_bmeans.annotations))
+    with torch.no_grad():
+        for samples, targets in tqdm.tqdm(data_loader, ascii=True, total=len(data_loader)):
+            video_id_features.extend(['%03d' % t['video_id'][0] for t in targets])
+            samples = samples.to(device)
+            features_all, _ = model.backbone(samples)
+            video_features.append(torch.nn.functional.adaptive_avg_pool2d(features_all[1].decompose()[0], (9, 16)).view(len(targets), -1).detach().cpu())
+    video_features = torch.cat(video_features, dim=0).detach().numpy()
+    video_id_features = np.array(video_id_features)
+    torch.cuda.empty_cache()
+
+    print('running %s-Means for: %s %s' % (args.budget, video_features.shape, video_features.dtype))
+    kmeans = KMeans(n_clusters=args.budget, random_state=0).fit(video_features)
+    mapper = {'budget': args.budget, 'video_id_to_index': {}, 'used_indices': {}, 'un_used_indices': {b: True for b in range(0, args.budget)}}
+    for v in video_id_list:
+        cluster_ids = kmeans.labels_[video_id_features == v]
+        i = np.argmax(np.bincount(cluster_ids))
+        mapper['video_id_to_index'][v] = i
+        mapper['used_indices'][i] = True
+        if i in mapper['un_used_indices']:
+            del mapper['un_used_indices'][i]
+    print(mapper)
+    # {'budget': 10, 'video_id_to_index': {'001': 3, '003': 1, '005': 1, '006': 4, '007': 9, '008': 9, '009': 6, '011': 7, '012': 1, '013': 3, '014': 2, '015': 7, '016': 8, '017': 1, '019': 8, '020': 8, '023': 7, '025': 3, '027': 8, '034': 2, '036': 1, '039': 1, '040': 1, '043': 1, '044': 8, '046': 6, '048': 6, '049': 9, '050': 0, '051': 1, '053': 3, '054': 5, '055': 5, '056': 6, '058': 5, '059': 5, '060': 2, '066': 1, '067': 1, '068': 2, '069': 9, '070': 1, '071': 6, '073': 9, '074': 1, '075': 6, '076': 0, '077': 5, '080': 8, '085': 8, '086': 2, '087': 1, '088': 1, '090': 6, '091': 6, '092': 6, '093': 6, '094': 1, '095': 1, '098': 5, '099': 1, '105': 3, '108': 1, '110': 6, '112': 2, '114': 5, '115': 5, '116': 6, '117': 8, '118': 7, '125': 8, '127': 6, '128': 1, '129': 1, '130': 1, '131': 8, '132': 1, '135': 8, '136': 2, '141': 1, '146': 9, '148': 8, '149': 8, '150': 1, '152': 2, '154': 9, '156': 1, '158': 6, '159': 1, '160': 7, '161': 7, '164': 1, '167': 7, '169': 1, '170': 2, '171': 1, '172': 7, '175': 1, '178': 6, '179': 1}, 'used_indices': {3: True, 1: True, 4: True, 9: True, 6: True, 7: True, 2: True, 8: True, 0: True, 5: True}, 'un_used_indices': {}}
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
     parser.add_argument('--lr', default=2e-4, type=float)
@@ -191,6 +282,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--opt', type=str)
     parser.add_argument('--input_scale', type=float, default=1.0)
+    parser.add_argument('--budget', type=int, default=10)
+    parser.add_argument('--refine_det_score_thres', type=float, default=0.5, help='minimum detection score in pseudo annotation')
     # parser = argparse.ArgumentParser('Deformable DETR training and evaluation script', parents=[get_args_parser()])
     args = parser.parse_args()
     # if args.output_dir:
@@ -199,10 +292,14 @@ if __name__ == '__main__':
         eval_coco(args)
     elif args.opt == 'eval_s100':
         eval_scenes100(args)
+    elif args.opt == 'pl':
+        pseudo_label(args)
+    elif args.opt == 'bmeans':
+        bmeans_cluster(args)
 
 '''
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_coco --coco_path ../MSCOCO2017 --resume checkpoint.pth
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_s100 --coco_path ../MSCOCO2017 --resume checkpoint.pth
-
-CUDA_VISIBLE_DEVICES=4 nohup python main.py --output_dir outputs/base --with_box_refine --two_stage --resume r50_deformable_detr_convert.pth --coco_path ../MSCOCO2017/ --epochs 10 --lr_drop 7 --batch_size 3 --num_workers 4 &> base_ep10.log &
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --coco_path ../MSCOCO2017 --resume checkpoint.pth
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt pl --coco_path ../MSCOCO2017 --resume checkpoint.pth --input_scale 1.25
 '''
