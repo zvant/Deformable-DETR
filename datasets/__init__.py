@@ -11,6 +11,7 @@ import torch.utils.data
 from .torchvision_datasets import CocoDetection
 
 from .coco import build as build_coco
+from .coco import build_dataset_scenes100
 
 
 def get_coco_api_from_dataset(dataset):

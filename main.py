@@ -301,10 +301,7 @@ def main(args):
             model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
         )
 
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                     **{f'test_{k}': v for k, v in test_stats.items()},
-                     'epoch': epoch,
-                     'n_parameters': n_parameters}
+        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()}, **{f'test_{k}': v for k, v in test_stats.items()}, 'epoch': epoch, 'n_parameters': n_parameters}
 
         if args.output_dir and utils.is_main_process():
             with (output_dir / "log.txt").open("a") as f:
@@ -318,8 +315,7 @@ def main(args):
                     if epoch % 50 == 0:
                         filenames.append(f'{epoch:03}.pth')
                     for name in filenames:
-                        torch.save(coco_evaluator.coco_eval["bbox"].eval,
-                                   output_dir / "eval" / name)
+                        torch.save(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval" / name)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -342,3 +338,4 @@ if __name__ == '__main__':
     main(args)
 
 # python main.py --output_dir outputs/base --with_box_refine --two_stage
+# CUDA_VISIBLE_DEVICES=4 nohup python main.py --output_dir outputs/base --with_box_refine --two_stage --resume r50_deformable_detr_convert.pth --coco_path ../MSCOCO2017/ --epochs 10 --lr_drop 7 --batch_size 3 --num_workers 4 &> base_ep10.log &

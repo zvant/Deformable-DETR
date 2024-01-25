@@ -5,3 +5,5 @@ models/ops/build
 *.so
 *.pth
 *.pt
+*.json
+
