@@ -87,7 +87,7 @@ def eval_scenes100(args):
         json.dump(results_all, fp)
 
 
-def inference_scenes100(model, postprocessors, detections, data_loader, device):
+def inference_scenes100(model, postprocessors, detections, data_loader, device, is_moe=False):
     print('%d images' % len(detections))
     model.eval()
     with torch.no_grad():
@@ -96,7 +96,12 @@ def inference_scenes100(model, postprocessors, detections, data_loader, device):
             samples = samples.to(device)
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-            outputs = model(samples)
+            if is_moe:
+                video_id_batch = [int(t['video_id'][0]) if 'video_id' in t else 999 for t in targets]
+                video_id_batch = [('%03d' % v) for v in video_id_batch]
+                outputs = model(samples, video_id_batch)
+            else:
+                outputs = model(samples)
             orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
             results = postprocessors['bbox'](outputs, orig_target_sizes)
             if 'segm' in postprocessors.keys():
@@ -165,8 +170,9 @@ def pseudo_label(args):
                 results = postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
             res = {target['image_id'].item(): output for target, output in zip(targets, results)}
             for i in res:
-                detections[i]['annotations'] = [{'bbox': list(map(float, b)), 'bbox_mode': BoxMode.XYXY_ABS, 'segmentation': [], 'category_id': int(l) - 1, 'score': float(s)} for s, l, b in zip(res[i]['scores'], res[i]['labels'], res[i]['boxes'])]
-                detections[i]['annotations'] = list(filter(lambda x: x['score'] >= args.refine_det_score_thres, detections[i]['annotations']))
+                res[i]['scores'] = res[i]['scores'].detach().cpu().numpy()
+                keep_indices = np.arange(0, len(res[i]['scores']))[res[i]['scores'] > args.refine_det_score_thres]
+                detections[i]['annotations'] = [{'bbox': list(map(float, b)), 'bbox_mode': BoxMode.XYXY_ABS, 'segmentation': [], 'category_id': int(l) - 1, 'score': float(s)} for s, l, b in zip(res[i]['scores'][keep_indices], res[i]['labels'][keep_indices], res[i]['boxes'][keep_indices])]
 
     with open('scenes100_pl_x%.2f_s%.2f.json' % (args.input_scale, args.refine_det_score_thres), 'w') as fp:
         json.dump(detections, fp)
@@ -303,6 +309,6 @@ if __name__ == '__main__':
 '''
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_coco --coco_path ../MSCOCO2017 --resume checkpoint.pth
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_s100 --resume checkpoint.pth
+python inference.py --with_box_refine --two_stage --num_workers 6 --batch_size 4 --opt pl --resume checkpoint.pth --input_scale 1.25
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --resume checkpoint.pth
-python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt pl --resume checkpoint.pth --input_scale 1.25
 '''
