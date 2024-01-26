@@ -222,6 +222,26 @@ class CocoDetectionScenes100:
                 im['id'] = i + 1
                 im['image_id'] = im['id']
 
+        elif split == 'train': # use pseudo labeled images
+            with open(os.path.join(os.path.dirname(__file__), '..', 'scenes100_pl_1.25.json'), 'r') as fp:
+                self.annotations = list(json.load(fp).values())
+            ann_id = 1
+            for i, im in enumerate(self.annotations):
+                im['id'] = i + 1
+                im['image_id'] = im['id']
+                for ann in im['annotations']:
+                    assert ann['bbox_mode'] == BoxMode.XYXY_ABS
+                    del ann['bbox_mode']
+                    ann['category_id'] = ann['category_id'] + 1
+                    ann['iscrowd'] = 0
+                    x1, y1, x2, y2 = ann['bbox']
+                    ann['bbox'] = [x1, y1, x2 - x1, y2 - y1]
+                    ann['area'] = ann['bbox'][3] - ann['bbox'][2]
+                    ann['segmentation'] = []
+                    ann['image_id'] = im['id']
+                    ann['id'] = ann_id
+                    ann_id += 1
+
         else:
             raise NotImplementedError
 

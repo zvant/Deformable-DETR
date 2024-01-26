@@ -25,7 +25,7 @@ from datasets.data_prefetcher import data_prefetcher
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0):
+                    device: torch.device, epoch: int, max_norm: float = 0, is_moe: bool = False):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -40,7 +40,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
     for _ in tqdm.tqdm(range(len(data_loader)), ascii=True, total=len(data_loader)):
-        outputs = model(samples)
+        if is_moe:
+            video_id_batch = [int(t['video_id'][0]) if 'video_id' in t else 999 for t in targets]
+            video_id_batch = [('%03d' % v) for v in video_id_batch]
+            outputs = model(samples, video_id_batch)
+        else:
+            outputs = model(samples)
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)

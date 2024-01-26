@@ -7,7 +7,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 # ------------------------------------------------------------------------
 
-from .deformable_detr import build
+from .deformable_detr import build, DeformableDETR
 
 
 def build_model(args):

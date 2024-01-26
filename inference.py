@@ -78,15 +78,21 @@ def eval_scenes100(args):
     dataset_val = build_dataset_scenes100('val', args.input_scale, args)
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
-
     detections = {im['id']: im for im in copy.deepcopy(dataset_val.annotations)}
     for im in detections.values():
         im['file_name'] = os.path.basename(im['file_name'])
         im['annotations'] = []
+    results_all = inference_scenes100(model, postprocessors, detections, data_loader_val, device)
+    with open('results_AP_base.json', 'w') as fp:
+        json.dump(results_all, fp)
+
+
+def inference_scenes100(model, postprocessors, detections, data_loader, device):
     print('%d images' % len(detections))
+    model.eval()
     with torch.no_grad():
         iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
-        for samples, targets in tqdm.tqdm(data_loader_val, ascii=True, total=len(data_loader_val)):
+        for samples, targets in tqdm.tqdm(data_loader, ascii=True, total=len(data_loader)):
             samples = samples.to(device)
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -120,8 +126,7 @@ def eval_scenes100(args):
     weighted = np.array(results_avg['weighted']).mean(axis=0)
     print('/'.join(map(lambda x: '%05.2f' % (x * 100), weighted)))
     results_all['avg'] = results_avg
-    with open('results_AP_base.json', 'w') as fp:
-        json.dump(results_all, fp)
+    return results_all
 
 
 def pseudo_label(args):
