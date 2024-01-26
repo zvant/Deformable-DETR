@@ -168,13 +168,12 @@ def pseudo_label(args):
                 detections[i]['annotations'] = [{'bbox': list(map(float, b)), 'bbox_mode': BoxMode.XYXY_ABS, 'segmentation': [], 'category_id': int(l) - 1, 'score': float(s)} for s, l, b in zip(res[i]['scores'], res[i]['labels'], res[i]['boxes'])]
                 detections[i]['annotations'] = list(filter(lambda x: x['score'] >= args.refine_det_score_thres, detections[i]['annotations']))
 
-    with open('scenes100_pl_%.2f.json' % args.input_scale, 'w') as fp:
+    with open('scenes100_pl_x%.2f_s%.2f.json' % (args.input_scale, args.refine_det_score_thres), 'w') as fp:
         json.dump(detections, fp)
 
 
 def bmeans_cluster(args):
     from sklearn.cluster import KMeans
-
     utils.init_distributed_mode(args)
     print(args)
     device = torch.device(args.device)
@@ -190,7 +189,7 @@ def bmeans_cluster(args):
     model.load_state_dict(checkpoint['model'], strict=True)
     model.eval()
 
-    dataset_bmeans = build_dataset_scenes100('pl', args.input_scale, args)
+    dataset_bmeans = build_dataset_scenes100('bmeans', args.input_scale, args)
     sampler = torch.utils.data.SequentialSampler(dataset_bmeans)
     data_loader = DataLoader(dataset_bmeans, args.batch_size, sampler=sampler, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
     video_id_features = []
@@ -201,7 +200,7 @@ def bmeans_cluster(args):
             video_id_features.extend(['%03d' % t['video_id'][0] for t in targets])
             samples = samples.to(device)
             features_all, _ = model.backbone(samples)
-            video_features.append(torch.nn.functional.adaptive_avg_pool2d(features_all[1].decompose()[0], (9, 16)).view(len(targets), -1).detach().cpu())
+            video_features.append(torch.nn.functional.adaptive_avg_pool2d(features_all[1].decompose()[0], (7, 12)).view(len(targets), -1).detach().cpu())
     video_features = torch.cat(video_features, dim=0).detach().numpy()
     video_id_features = np.array(video_id_features)
     torch.cuda.empty_cache()
@@ -217,7 +216,6 @@ def bmeans_cluster(args):
         if i in mapper['un_used_indices']:
             del mapper['un_used_indices'][i]
     print(mapper)
-    # {'budget': 10, 'video_id_to_index': {'001': 3, '003': 1, '005': 1, '006': 4, '007': 9, '008': 9, '009': 6, '011': 7, '012': 1, '013': 3, '014': 2, '015': 7, '016': 8, '017': 1, '019': 8, '020': 8, '023': 7, '025': 3, '027': 8, '034': 2, '036': 1, '039': 1, '040': 1, '043': 1, '044': 8, '046': 6, '048': 6, '049': 9, '050': 0, '051': 1, '053': 3, '054': 5, '055': 5, '056': 6, '058': 5, '059': 5, '060': 2, '066': 1, '067': 1, '068': 2, '069': 9, '070': 1, '071': 6, '073': 9, '074': 1, '075': 6, '076': 0, '077': 5, '080': 8, '085': 8, '086': 2, '087': 1, '088': 1, '090': 6, '091': 6, '092': 6, '093': 6, '094': 1, '095': 1, '098': 5, '099': 1, '105': 3, '108': 1, '110': 6, '112': 2, '114': 5, '115': 5, '116': 6, '117': 8, '118': 7, '125': 8, '127': 6, '128': 1, '129': 1, '130': 1, '131': 8, '132': 1, '135': 8, '136': 2, '141': 1, '146': 9, '148': 8, '149': 8, '150': 1, '152': 2, '154': 9, '156': 1, '158': 6, '159': 1, '160': 7, '161': 7, '164': 1, '167': 7, '169': 1, '170': 2, '171': 1, '172': 7, '175': 1, '178': 6, '179': 1}, 'used_indices': {3: True, 1: True, 4: True, 9: True, 6: True, 7: True, 2: True, 8: True, 0: True, 5: True}, 'un_used_indices': {}}
 
 
 if __name__ == '__main__':
@@ -304,7 +302,7 @@ if __name__ == '__main__':
 
 '''
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_coco --coco_path ../MSCOCO2017 --resume checkpoint.pth
-python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_s100 --coco_path ../MSCOCO2017 --resume checkpoint.pth
-python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --coco_path ../MSCOCO2017 --resume checkpoint.pth
-python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt pl --coco_path ../MSCOCO2017 --resume checkpoint.pth --input_scale 1.25
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_s100 --resume checkpoint.pth
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --resume checkpoint.pth
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt pl --resume checkpoint.pth --input_scale 1.25
 '''

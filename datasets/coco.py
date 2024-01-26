@@ -213,7 +213,7 @@ class CocoDetectionScenes100:
                 img_dir = os.path.join(root_dir, 'jpegs')
                 with open(os.path.join(root_dir, 'frames.json'), 'r') as fp:
                     frames = json.load(fp)
-                ifilelist = frames['ifilelist'][:: (1000 if split == 'pl' else 3600)]
+                ifilelist = frames['ifilelist'][:: (20 if split == 'pl' else 500)]
                 annotations_v = []
                 for f in ifilelist:
                     annotations_v.append({'video_id': video_id, 'width': frames['meta']['video']['W'], 'height': frames['meta']['video']['H'], 'file_name': os.path.join(img_dir, f), 'annotations': []})
