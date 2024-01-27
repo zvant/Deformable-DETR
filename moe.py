@@ -30,6 +30,7 @@ from datasets import build_dataset, get_coco_api_from_dataset, build_dataset_sce
 from engine import evaluate, train_one_epoch
 from models import build_model, DeformableDETR
 from models.backbone import Backbone, Joiner
+from torchvision.models._utils import IntermediateLayerGetter
 
 import contextlib
 from inference import inference_scenes100
@@ -55,6 +56,12 @@ class DeformableDETRMoE(DeformableDETR):
                - "pred_boxes": The normalized boxes coordinates for all queries, represented as (center_x, center_y, height, width). These values are normalized in [0, 1], relative to the size of each individual image (disregarding possible padding). See PostProcess for information on how to retrieve the unnormalized bounding box.
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of dictionnaries containing the two above keys for each decoder layer.
         """
+        for k in self.backbone_moe_keys:
+            self.backbone[0].body[k].curr_video_id = video_id_batch
+        for lvl in self.output_embed_levels:
+            self.class_embed[lvl].curr_video_id = video_id_batch
+            self.bbox_embed[lvl].curr_video_id = video_id_batch
+
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
@@ -113,6 +120,12 @@ class DeformableDETRMoE(DeformableDETR):
         if self.two_stage:
             enc_outputs_coord = enc_outputs_coord_unact.sigmoid()
             out['enc_outputs'] = {'pred_logits': enc_outputs_class, 'pred_boxes': enc_outputs_coord}
+
+        for k in self.backbone_moe_keys:
+            self.backbone[0].body[k].curr_video_id = None
+        for lvl in self.output_embed_levels:
+            self.class_embed[lvl].curr_video_id = None
+            self.bbox_embed[lvl].curr_video_id = None
         return out
 
     @classmethod
@@ -128,9 +141,34 @@ class DeformableDETRMoE(DeformableDETR):
             net.video_id_to_index = {v: i for i, v in enumerate(video_id_list)}
         else:
             raise NotImplementedError
+        print('base model: %d parameters' % sum([p.numel() for p in net.parameters()]))
         assert isinstance(net.backbone, Joiner)
+        assert len(net.backbone) == 2
+        assert isinstance(net.backbone[0], Backbone)
+        assert isinstance(net.backbone[0].body, IntermediateLayerGetter)
+        net.backbone_moe_keys = ['conv1', 'layer1']
+        for k in net.backbone_moe_keys:
+            net.backbone[0].body[k] = MakeMoE(net.backbone[0].body[k], budget, net.video_id_to_index)
+        net.output_embed_levels = [0, 1, 2, 3, 4, 5, 6]
+        assert len(net.class_embed) == len(net.bbox_embed) == len(net.output_embed_levels)
+        for lvl in net.output_embed_levels:
+            net.class_embed[lvl] = MakeMoE(net.class_embed[lvl], budget, net.video_id_to_index)
+            net.bbox_embed[lvl] = MakeMoE(net.bbox_embed[lvl], budget, net.video_id_to_index)
+        print('MoE model: %d parameters' % sum([p.numel() for p in net.parameters()]))
         net.__class__ = cls
         return net
+
+
+class MakeMoE(torch.nn.Module):
+    def __init__(self, net: torch.nn.Module, budget: int, video_id_to_index: dict):
+        super(MakeMoE, self).__init__()
+        self.experts = torch.nn.ModuleList([copy.deepcopy(net) for _ in range(budget)])
+        self.video_id_to_index = video_id_to_index
+
+    def forward(self, x: torch.Tensor):
+        assert len(x) == len(self.curr_video_id)
+        out = [self.experts[self.video_id_to_index[self.curr_video_id[i]]](x[i : i + 1, :]) for i in range(0, len(self.curr_video_id))]
+        return torch.cat(out, dim=0)
 
 
 def train_moe(args):
@@ -139,10 +177,10 @@ def train_moe(args):
     print(args)
     device = torch.device(args.device)
     # fix the seed for reproducibility
-    seed = args.seed + utils.get_rank()
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    # seed = args.seed + utils.get_rank()
+    # torch.manual_seed(seed)
+    # np.random.seed(seed)
+    # random.seed(seed)
     model, criterion, postprocessors = build_model(args)
 
     checkpoint = torch.load(args.resume, map_location='cpu')
@@ -208,6 +246,30 @@ def train_moe(args):
         optimizer.zero_grad()
         losses.backward()
         optimizer.step()
+
+
+def eval_moe_scenes100(args):
+    utils.init_distributed_mode(args)
+    print(args)
+    device = torch.device(args.device)
+    model, _, postprocessors = build_model(args)
+    model = DeformableDETRMoE.create_from_sup(model, args.budget)
+    model.to(device)
+    checkpoint = torch.load(args.resume, map_location='cpu')
+    model.load_state_dict(checkpoint['model'], strict=True)
+    model.eval()
+    dataset_val = build_dataset_scenes100('val', args.input_scale, args)
+    sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+    data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val, drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers, pin_memory=True)
+    detections = {im['id']: im for im in copy.deepcopy(dataset_val.annotations)}
+    for im in detections.values():
+        im['file_name'] = os.path.basename(im['file_name'])
+        im['annotations'] = []
+    results_all = inference_scenes100(model, postprocessors, detections, data_loader_val, device, is_moe=True)
+    print('videos average weighted')
+    for c in ['person', 'vehicle', 'overall', 'weighted']:
+        print('%10s  ' % c, end='')
+        print('/'.join(map(lambda x: '%05.2f' % (x * 100), np.array(results_all['avg'][c]).mean(axis=0))))
 
 
 if __name__ == '__main__':
@@ -277,6 +339,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--opt', type=str)
     parser.add_argument('--input_scale', type=float, default=1.0)
+    parser.add_argument('--pl_file', type=str, default='')
     parser.add_argument('--iters', default=6002, type=int)
     parser.add_argument('--eval_iters', default=3000, type=int)
     parser.add_argument('--budget', type=int, default=10)
@@ -284,8 +347,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.opt == 'train':
         train_moe(args)
+    elif args.opt == 'eval_s100':
+        eval_moe_scenes100(args)
 
 '''
-python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs --budget 1 --iters 1002 --eval_iters 500
+python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs --budget 1 --iters 2002 --eval_iters 4000 --pl_file scenes100_pl_sample.json
 python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs --budget 1 --iters 200005 --eval_iters 20000
+
+python moe.py --with_box_refine --two_stage --num_workers 10 --batch_size 10 --opt eval_s100 --resume outputs/checkpoint_MoE_budget10_it005998.pth --budget 10
 '''

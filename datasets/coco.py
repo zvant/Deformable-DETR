@@ -14,6 +14,7 @@ Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references
 """
 import os
 import json
+import tqdm
 from pathlib import Path
 from PIL import Image
 
@@ -176,7 +177,7 @@ def build(image_set, args):
 class CocoDetectionScenes100:
     video_id_list = ['001', '003', '005', '006', '007', '008', '009', '011', '012', '013', '014', '015', '016', '017', '019', '020', '023', '025', '027', '034', '036', '039', '040', '043', '044', '046', '048', '049', '050', '051', '053', '054', '055', '056', '058', '059', '060', '066', '067', '068', '069', '070', '071', '073', '074', '075', '076', '077', '080', '085', '086', '087', '088', '090', '091', '092', '093', '094', '095', '098', '099', '105', '108', '110', '112', '114', '115', '116', '117', '118', '125', '127', '128', '129', '130', '131', '132', '135', '136', '141', '146', '148', '149', '150', '152', '154', '156', '158', '159', '160', '161', '164', '167', '169', '170', '171', '172', '175', '178', '179']
 
-    def __init__(self, split, transforms):
+    def __init__(self, split, transforms, pl_file=None):
         from detectron2.structures import BoxMode
         if split == 'val':
             self.annotations = []
@@ -223,10 +224,13 @@ class CocoDetectionScenes100:
                 im['image_id'] = im['id']
 
         elif split == 'train': # use pseudo labeled images
-            with open(os.path.join(os.path.dirname(__file__), '..', 'scenes100_pl_x1.25_s0.50.json'), 'r') as fp:
+            with open(pl_file, 'r') as fp:
                 self.annotations = list(json.load(fp).values())
             ann_id = 1
-            for i, im in enumerate(self.annotations):
+            for i, im in tqdm.tqdm(enumerate(self.annotations), total=len(self.annotations), ascii=True, desc='parsing %s' % pl_file):
+                path = [os.path.dirname(__file__), '..', '..', 'Intersections'] + im['file_name'].split(os.sep)[-5:]
+                im['file_name'] = os.path.join(*path)
+                assert os.access(im['file_name'], os.R_OK)
                 im['id'] = i + 1
                 im['image_id'] = im['id']
                 for ann in im['annotations']:
@@ -288,5 +292,5 @@ def build_dataset_scenes100(split, scale_factor, args):
         ])
     else:
         raise NotImplementedError
-    dataset = CocoDetectionScenes100(split, tf)
+    dataset = CocoDetectionScenes100(split, tf, args.pl_file)
     return dataset
