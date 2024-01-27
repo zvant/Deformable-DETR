@@ -309,6 +309,6 @@ if __name__ == '__main__':
 '''
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_coco --coco_path ../MSCOCO2017 --resume checkpoint.pth
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_s100 --resume checkpoint.pth
-python inference.py --with_box_refine --two_stage --num_workers 6 --batch_size 4 --opt pl --resume checkpoint.pth --input_scale 1.25
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt pl --resume checkpoint.pth --input_scale 1.25
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --resume checkpoint.pth
 '''
