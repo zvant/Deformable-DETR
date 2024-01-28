@@ -136,7 +136,7 @@ class DeformableDETRMoE(DeformableDETR):
             return net
 
         if budget == 10:
-            net.video_id_to_index = {'001': 3, '003': 6, '005': 4, '006': 6, '007': 6, '008': 7, '009': 6, '011': 1, '012': 3, '013': 0, '014': 2, '015': 1, '016': 1, '017': 5, '019': 5, '020': 1, '023': 4, '025': 8, '027': 1, '034': 2, '036': 6, '039': 4, '040': 3, '043': 3, '044': 5, '046': 8, '048': 4, '049': 3, '050': 3, '051': 0, '053': 3, '054': 4, '055': 3, '056': 8, '058': 1, '059': 7, '060': 2, '066': 7, '067': 6, '068': 2, '069': 7, '070': 9, '071': 8, '073': 7, '074': 8, '075': 8, '076': 3, '077': 4, '080': 7, '085': 5, '086': 2, '087': 4, '088': 8, '090': 8, '091': 8, '092': 6, '093': 8, '094': 3, '095': 3, '098': 3, '099': 3, '105': 0, '108': 8, '110': 3, '112': 2, '114': 4, '115': 4, '116': 8, '117': 5, '118': 1, '125': 1, '127': 8, '128': 6, '129': 3, '130': 6, '131': 7, '132': 3, '135': 7, '136': 2, '141': 1, '146': 7, '148': 1, '149': 1, '150': 6, '152': 2, '154': 7, '156': 6, '158': 6, '159': 3, '160': 1, '161': 7, '164': 3, '167': 1, '169': 4, '170': 2, '171': 1, '172': 1, '175': 3, '178': 8, '179': 4}
+            net.video_id_to_index = {'001': 9, '003': 3, '005': 3, '006': 3, '007': 3, '008': 2, '009': 3, '011': 7, '012': 3, '013': 9, '014': 4, '015': 7, '016': 3, '017': 2, '019': 7, '020': 7, '023': 5, '025': 9, '027': 7, '034': 4, '036': 8, '039': 3, '040': 3, '043': 3, '044': 1, '046': 8, '048': 3, '049': 2, '050': 3, '051': 9, '053': 7, '054': 5, '055': 5, '056': 8, '058': 2, '059': 7, '060': 4, '066': 2, '067': 3, '068': 7, '069': 2, '070': 8, '071': 8, '073': 2, '074': 8, '075': 8, '076': 3, '077': 0, '080': 6, '085': 1, '086': 1, '087': 3, '088': 8, '090': 8, '091': 8, '092': 8, '093': 8, '094': 3, '095': 8, '098': 8, '099': 3, '105': 9, '108': 2, '110': 3, '112': 4, '114': 3, '115': 5, '116': 8, '117': 1, '118': 7, '125': 1, '127': 8, '128': 3, '129': 2, '130': 3, '131': 7, '132': 3, '135': 2, '136': 4, '141': 3, '146': 2, '148': 7, '149': 7, '150': 3, '152': 4, '154': 2, '156': 3, '158': 3, '159': 2, '160': 7, '161': 7, '164': 2, '167': 7, '169': 2, '170': 7, '171': 3, '172': 3, '175': 3, '178': 8, '179': 2}
         elif budget == 100:
             net.video_id_to_index = {v: i for i, v in enumerate(video_id_list)}
         else:
@@ -355,4 +355,11 @@ python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt
 python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs --budget 1 --iters 200005 --eval_iters 20000
 
 python moe.py --with_box_refine --two_stage --num_workers 10 --batch_size 10 --opt eval_s100 --resume outputs/checkpoint_MoE_budget10_it005998.pth --budget 10
+
+
+CUDA_VISIBLE_DEVICES=1 nohup python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs_x1_25_lr1e5 --pl_file scenes100_pl_x1.25_s0.50.json --budget 1 --iters 160005 --eval_iters 30000 --lr 1e-5 &> log_b_1_x125_lr_1e5.log &
+CUDA_VISIBLE_DEVICES=2 nohup python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs_x1_lr2e5 --pl_file scenes100_pl_x1.00_s0.50.json --budget 1 --iters 160005 --eval_iters 30000 --lr 2e-5 &> log_b_1_x1_lr_2e5.log &
+
+CUDA_VISIBLE_DEVICES=3 nohup python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs_x1_lr1e5 --pl_file scenes100_pl_x1.00_s0.50.json --budget 1 --iters 160005 --eval_iters 30000 --lr 1e-5 &> log_b_1_x1_lr_1e5.log &
+CUDA_VISIBLE_DEVICES=4 nohup python moe.py --with_box_refine --two_stage --num_workers 3 --batch_size 3 --opt train --resume checkpoint.pth --output_dir outputs_x1_25_lr2e5 --pl_file scenes100_pl_x1.25_s0.50.json --budget 1 --iters 160005 --eval_iters 30000 --lr 2e-5 &> log_b_1_x125_lr_2e5.log &
 '''

@@ -291,6 +291,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--opt', type=str)
     parser.add_argument('--input_scale', type=float, default=1.0)
+    parser.add_argument('--pl_file', type=str, default='')
     parser.add_argument('--budget', type=int, default=10)
     parser.add_argument('--refine_det_score_thres', type=float, default=0.5, help='minimum detection score in pseudo annotation')
     # parser = argparse.ArgumentParser('Deformable DETR training and evaluation script', parents=[get_args_parser()])
@@ -310,5 +311,5 @@ if __name__ == '__main__':
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_coco --coco_path ../MSCOCO2017 --resume checkpoint.pth
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt eval_s100 --resume checkpoint.pth
 python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt pl --resume checkpoint.pth --input_scale 1.25
-python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --resume checkpoint.pth
+python inference.py --with_box_refine --two_stage --num_workers 4 --batch_size 4 --opt bmeans --budget 10 --resume checkpoint.pth
 '''
